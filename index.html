@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width initial-scale=1" />
+<title>Fuel Bill Generator</title>
+
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css" />
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+body { background:#f5f5f5; padding:20px; }
+.receipt {
+  width:360px; min-height:520px; padding:22px;
+  color:#1d2d8f; border:12px solid #888;
+  font-family:"Times New Roman", serif;
+  background-size:cover;
+}
+.title,.pump { text-align:center; font-weight:bold; }
+.title { font-size:18px; }
+.pump { font-size:17px; }
+.sub,.addr,.gst { text-align:center; font-size:15px; font-weight:normal; }
+.line { border-top:2px dotted #1d2d8f; margin:10px 0; }
+.rowx { display:flex; justify-content:space-between; margin-top:8px; }
+.total { font-weight:bold; font-size:22px; }
+#previewArea { margin-top:25px; display:flex; flex-wrap:wrap; gap:15px; }
+.form-control { margin-bottom:12px; }
+</style>
+</head>
+
+<body>
+<div class="container-fluid">
+<div class="row">
+<div class="col-md-4">
+
+<h3>Fuel Bill Generator</h3>
+
+<label>Pump Name</label>
+<input class="form-control" id="pumpName" value="KARAMVEER FILLING STATION">
+
+<label>Sub Name</label>
+<input class="form-control" id="subName" value="DEALERS IN INDIAN OIL CORP LTD">
+
+<label>Address</label>
+<input class="form-control" id="address" value="OPPOSITE APNA ENCLAVE NEAR DAULTABAD MORE">
+
+<label>GSTIN</label>
+<input class="form-control" id="gstin" value="06AGIPK0807D1ZW">
+
+<label>Product</label>
+<input class="form-control" id="product" value="PETROL XP100">
+
+<label>Price</label>
+<input class="form-control" id="price" value="160">
+
+<br>
+<button class="btn btn-primary" onclick="generatePreview()">Preview</button>
+<button class="btn btn-success" onclick="generatePDF()">Generate Current Month PDF</button>
+
+</div>
+<div class="col-md-8">
+<div id="previewArea"></div>
+</div>
+</div>
+</div>
+
+<script>
+const HOLIDAYS = ["26-01", "15-08", "02-10"];
+
+const TEXTURES = [
+  "texture-1.jpeg",
+  "texture-2.jpeg",
+  "texture-3.avif",
+  "texture-4.avif",
+  "texture-5.avif",
+  "texture-6.jpeg"
+];
+
+const AMOUNT_SETS = [
+  [3500, 3000, 3000, 3000, 2600, 2000],
+  [3500, 3500, 3000, 2500, 2500, 2500],
+  [3500, 3500, 3000, 3000, 2500, 2000],
+  [3500, 3000, 3000, 3000, 3000, 2000],
+  [3500, 3500, 3000, 3000, 2600, 2300]
+];
+
+function pad(n){ return String(n).padStart(2, "0"); }
+function randomItem(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function isHoliday(d){
+  return HOLIDAYS.includes(`${pad(d.getDate())}-${pad(d.getMonth()+1)}`);
+}
+
+function randomTime(){
+  const h = 9 + Math.floor(Math.random()*3);
+  const m = Math.floor(Math.random()*60);
+  return `${pad(h)}:${pad(m)} AM`;
+}
+
+function getWorkingDays(count = 6) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+
+  const selected = [];
+
+  for (let day = 1; day <= 31 && selected.length < count; day += 5) {
+    const d = new Date(year, month, day);
+
+    if (d.getMonth() !== month) break;
+
+    while (
+      d.getMonth() === month &&
+      (d.getDay() === 0 || d.getDay() === 6 || isHoliday(d))
+    ) {
+      d.setDate(d.getDate() + 1);
+    }
+
+    if (d.getMonth() === month) selected.push(new Date(d));
+  }
+
+  return selected;
+}
+
+function createBills() {
+  const days = getWorkingDays(6);
+  const selectedAmounts = randomItem(AMOUNT_SETS).sort(() => Math.random() - 0.5);
+  const selectedTextures = [...TEXTURES].sort(() => Math.random() - 0.5);
+
+  let billNo = 900 + Math.floor(Math.random() * 100);
+
+  return days.map((day, index) => {
+    const amount = selectedAmounts[index];
+    billNo += 20 + Math.floor(Math.random() * 50);
+
+    return {
+      billNo,
+      date: `${pad(day.getDate())}-${pad(day.getMonth() + 1)}-${day.getFullYear()}`,
+      time: randomTime(),
+      amount,
+      texture: selectedTextures[index],
+      volume: (amount / Number($("#price").val())).toFixed(2) + "Lt"
+    };
+  });
+}
+
+function buildReceipt(bill){
+  const texture = bill.texture;
+
+  return `
+  <div class="receipt"
+    style="background:
+      linear-gradient(rgba(255,255,255,.2), rgba(255,255,255,.2)),
+      url('assets/images/textures/${texture}');
+      background-size:cover;">
+
+    <div class="title">TAX INVOICE</div>
+    <div class="pump">${$("#pumpName").val()}</div>
+    <div class="sub">${$("#subName").val()}</div>
+    <div class="addr">${$("#address").val()}</div>
+    <div class="gst">GSTIN NO ${$("#gstin").val()}</div>
+
+    <br>
+
+    <div class="rowx">
+      <div>BILL NO: ${bill.billNo}</div>
+      <div>DATE: ${bill.date}</div>
+    </div>
+
+    <div class="rowx">
+      <div>NAME:</div>
+      <div>TIME: ${bill.time}</div>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="rowx">
+      <div><b>ITEM NAME</b></div>
+      <div><b>QTY</b></div>
+      <div><b>PRICE</b></div>
+      <div><b>AMOUNT</b></div>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="rowx">
+      <div>${$("#product").val()}</div>
+      <div>${bill.volume}</div>
+      <div>${$("#price").val()}</div>
+      <div>${bill.amount}</div>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="rowx">
+      <div>TOTAL ITEM(S):1 /QTY:${bill.volume}</div>
+      <div>${bill.amount}</div>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="rowx total">
+      <div>TOTAL:</div>
+      <div>₹ ${bill.amount}</div>
+    </div>
+
+    <div class="line"></div>
+  </div>`;
+}
+
+function generatePreview(){
+  const bills = createBills();
+  $("#previewArea").html(bills.map(buildReceipt).join(""));
+}
+
+async function generatePDF(){
+  generatePreview();
+  await new Promise(r=>setTimeout(r,700));
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF("p","mm","a4");
+  const receipts = document.querySelectorAll(".receipt");
+
+  let x = 8, y = 8, count = 0;
+
+  for(let i=0; i<receipts.length; i++){
+    const canvas = await html2canvas(receipts[i], { scale:2, useCORS:true });
+    const img = canvas.toDataURL("image/jpeg",0.96);
+
+    pdf.addImage(img,"JPEG",x,y,94,126);
+
+    count++;
+    x += 100;
+
+    if(count % 2 === 0){ x = 8; y += 132; }
+
+    if(count % 4 === 0 && i !== receipts.length-1){
+      pdf.addPage();
+      x = 8;
+      y = 8;
+    }
+  }
+
+  const now = new Date();
+  const fileName =
+    now.toLocaleString("en-US",{month:"short"}) +
+    "-" +
+    String(now.getFullYear()).slice(-2) +
+    " Petrol.pdf";
+
+  pdf.save(fileName);
+}
+
+generatePreview();
+</script>
+</body>
+</html>
