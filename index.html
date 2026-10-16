@@ -56,6 +56,9 @@ body { background:#f5f5f5; padding:20px; }
 <label>Price</label>
 <input class="form-control" id="price" value="160">
 
+<label>Bill Date / Period End Date</label>
+<input class="form-control" id="billDate" type="date">
+
 <label>Duration Period (Months)</label>
 <input class="form-control" id="durationPeriod" type="number" min="1" max="24" value="1">
 
@@ -64,7 +67,7 @@ body { background:#f5f5f5; padding:20px; }
 
 <br>
 <button class="btn btn-primary" onclick="generatePreview()">Preview</button>
-<button class="btn btn-success" onclick="generatePDF()">Generate Current Month PDF</button>
+<button class="btn btn-success" onclick="generatePDF()">Generate PDF</button>
 
 </div>
 <div class="col-md-8">
@@ -95,6 +98,17 @@ const AMOUNT_SETS = [
 
 function pad(n){ return String(n).padStart(2, "0"); }
 function randomItem(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+function parseDateInput(value){
+  if (!value) return new Date();
+  const parts = value.split("-").map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function setDefaultBillDate(){
+  const now = new Date();
+  $("#billDate").val(`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`);
+}
 
 function isHoliday(d){
   return HOLIDAYS.includes(`${pad(d.getDate())}-${pad(d.getMonth()+1)}`);
@@ -138,11 +152,11 @@ function distributeTotal(total, count) {
 function createBills() {
   const duration = Math.max(1, parseInt($("#durationPeriod").val(), 10) || 1);
   const totalAmount = Math.max(1, Math.round(Number($("#totalAmount").val()) || 1));
-  const now = new Date();
+  const selectedDate = parseDateInput($("#billDate").val());
   const days = [];
 
   for (let offset = duration - 1; offset >= 0; offset--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const d = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - offset, 1);
     days.push(...getWorkingDaysForMonth(d.getFullYear(), d.getMonth(), 6));
   }
 
@@ -262,18 +276,20 @@ async function generatePDF(){
     }
   }
 
-  const now = new Date();
+  const selectedDate = parseDateInput($("#billDate").val());
   const duration = Math.max(1, parseInt($("#durationPeriod").val(), 10) || 1);
-  const start = new Date(now.getFullYear(), now.getMonth() - duration + 1, 1);
+  const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - duration + 1, 1);
   const periodLabel = duration === 1
-    ? now.toLocaleString("en-US", {month:"short"}) + "-" + String(now.getFullYear()).slice(-2)
+    ? selectedDate.toLocaleString("en-US", {month:"short"}) + "-" + String(selectedDate.getFullYear()).slice(-2)
     : start.toLocaleString("en-US", {month:"short"}) + "-" + String(start.getFullYear()).slice(-2) +
-      " to " + now.toLocaleString("en-US", {month:"short"}) + "-" + String(now.getFullYear()).slice(-2);
+      " to " + selectedDate.toLocaleString("en-US", {month:"short"}) + "-" + String(selectedDate.getFullYear()).slice(-2);
   const fileName = periodLabel + " Petrol.pdf";
 
   pdf.save(fileName);
 }
 
+setDefaultBillDate();
+$("#billDate, #durationPeriod, #totalAmount").on("change", generatePreview);
 generatePreview();
 </script>
 </body>
