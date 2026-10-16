@@ -56,14 +56,19 @@ body { background:#f5f5f5; padding:20px; }
 <label>Price</label>
 <input class="form-control" id="price" value="160">
 
-<label>Bill Date / Period End Date</label>
-<input class="form-control" id="billDate" type="date">
+<label>Start Date</label>
+<input class="form-control" id="startDate" type="date">
 
-<label>Duration Period (Months)</label>
-<input class="form-control" id="durationPeriod" type="number" min="1" max="24" value="1">
+<label>End Date</label>
+<input class="form-control" id="endDate" type="date">
+
+<label>Total No. of Slips</label>
+<input class="form-control" id="totalSlips" type="number" min="1" max="200" step="1" value="6">
 
 <label>Total Amount (₹)</label>
 <input class="form-control" id="totalAmount" type="number" min="1" step="1" value="17100">
+
+<div id="validationMessage" class="alert alert-danger" style="display:none"></div>
 
 <br>
 <button class="btn btn-primary" onclick="generatePreview()">Preview</button>
@@ -105,9 +110,15 @@ function parseDateInput(value){
   return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
-function setDefaultBillDate(){
+function formatInputDate(d){
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+function setDefaultDates(){
   const now = new Date();
-  $("#billDate").val(`${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`);
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  $("#startDate").val(formatInputDate(start));
+  $("#endDate").val(formatInputDate(now));
 }
 
 function isHoliday(d){
@@ -120,61 +131,76 @@ function randomTime(){
   return `${pad(h)}:${pad(m)} AM`;
 }
 
-function getWorkingDaysForMonth(year, month, count = 6) {
-  const selected = [];
-
-  for (let day = 1; day <= 31 && selected.length < count; day += 5) {
-    const d = new Date(year, month, day);
-    if (d.getMonth() !== month) break;
-
-    while (
-      d.getMonth() === month &&
-      (d.getDay() === 0 || d.getDay() === 6 || isHoliday(d))
-    ) {
-      d.setDate(d.getDate() + 1);
-    }
-
-    if (d.getMonth() === month) selected.push(new Date(d));
+function getEligibleDaysInRange(startDate, endDate) {
+  const days = [];
+  const d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  while (d <= endDate) {
+    if (d.getDay() !== 0 && d.getDay() !== 6 && !isHoliday(d)) days.push(new Date(d));
+    d.setDate(d.getDate() + 1);
   }
+  return days;
+}
 
-  return selected;
+function pickSlipDates(startDate, endDate, count) {
+  let eligible = getEligibleDaysInRange(startDate, endDate);
+  if (!eligible.length) {
+    const all = [];
+    const d = new Date(startDate);
+    while (d <= endDate) { all.push(new Date(d)); d.setDate(d.getDate()+1); }
+    eligible = all;
+  }
+  const result = [];
+  for (let i = 0; i < count; i++) {
+    const pos = count === 1 ? Math.floor((eligible.length - 1) / 2) : Math.round(i * (eligible.length - 1) / (count - 1));
+    result.push(new Date(eligible[pos]));
+  }
+  return result;
 }
 
 function distributeTotal(total, count) {
-  const base = Math.floor(total / count);
-  const amounts = Array(count).fill(base);
-  let remainder = total - (base * count);
+  // Vary each slip while guaranteeing that the rounded rupee amounts sum exactly to Total Amount.
+  if (count === 1) return [total];
+  const weights = Array.from({length: count}, () => 0.75 + Math.random() * 0.5);
+  const weightSum = weights.reduce((a,b) => a+b, 0);
+  const raw = weights.map(w => total * w / weightSum);
+  const amounts = raw.map(Math.floor);
+  let remainder = total - amounts.reduce((a,b) => a+b, 0);
+  const order = raw.map((v,i) => [v - Math.floor(v), i]).sort((a,b) => b[0] - a[0]);
+  for (let i = 0; i < remainder; i++) amounts[order[i % count][1]] += 1;
+  return amounts;
+}
 
-  for (let i = 0; i < remainder; i++) amounts[i % count] += 1;
-  return amounts.sort(() => Math.random() - 0.5);
+function showValidation(message){
+  $("#validationMessage").text(message).toggle(!!message);
 }
 
 function createBills() {
-  const duration = Math.max(1, parseInt($("#durationPeriod").val(), 10) || 1);
-  const totalAmount = Math.max(1, Math.round(Number($("#totalAmount").val()) || 1));
-  const selectedDate = parseDateInput($("#billDate").val());
-  const days = [];
+  const startDate = parseDateInput($("#startDate").val());
+  const endDate = parseDateInput($("#endDate").val());
+  const totalSlips = Math.max(1, Math.min(200, parseInt($("#totalSlips").val(), 10) || 1));
+  const totalAmount = Math.round(Number($("#totalAmount").val()) || 0);
+  const price = Number($("#price").val());
 
-  for (let offset = duration - 1; offset >= 0; offset--) {
-    const d = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - offset, 1);
-    days.push(...getWorkingDaysForMonth(d.getFullYear(), d.getMonth(), 6));
-  }
+  if (!$("#startDate").val() || !$("#endDate").val()) { showValidation("Please select both Start Date and End Date."); return []; }
+  if (startDate > endDate) { showValidation("Start Date cannot be after End Date."); return []; }
+  if (totalAmount < totalSlips) { showValidation("Total Amount must be at least ₹1 per slip. Please increase Total Amount or reduce Total No. of Slips."); return []; }
+  if (!(price > 0)) { showValidation("Price must be greater than 0."); return []; }
+  showValidation("");
 
-  const selectedAmounts = distributeTotal(totalAmount, days.length);
-  const selectedTextures = days.map((_, i) => TEXTURES[i % TEXTURES.length]);
+  const days = pickSlipDates(startDate, endDate, totalSlips);
+  const selectedAmounts = distributeTotal(totalAmount, totalSlips);
   let billNo = 900 + Math.floor(Math.random() * 100);
 
   return days.map((day, index) => {
     const amount = selectedAmounts[index];
     billNo += 20 + Math.floor(Math.random() * 50);
-
     return {
       billNo,
       date: `${pad(day.getDate())}-${pad(day.getMonth() + 1)}-${day.getFullYear()}`,
       time: randomTime(),
       amount,
-      texture: selectedTextures[index],
-      volume: (amount / Number($("#price").val())).toFixed(2) + "Lt"
+      texture: TEXTURES[index % TEXTURES.length],
+      volume: (amount / price).toFixed(2) + "Lt"
     };
   });
 }
@@ -276,20 +302,16 @@ async function generatePDF(){
     }
   }
 
-  const selectedDate = parseDateInput($("#billDate").val());
-  const duration = Math.max(1, parseInt($("#durationPeriod").val(), 10) || 1);
-  const start = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - duration + 1, 1);
-  const periodLabel = duration === 1
-    ? selectedDate.toLocaleString("en-US", {month:"short"}) + "-" + String(selectedDate.getFullYear()).slice(-2)
-    : start.toLocaleString("en-US", {month:"short"}) + "-" + String(start.getFullYear()).slice(-2) +
-      " to " + selectedDate.toLocaleString("en-US", {month:"short"}) + "-" + String(selectedDate.getFullYear()).slice(-2);
-  const fileName = periodLabel + " Petrol.pdf";
+  const start = parseDateInput($("#startDate").val());
+  const end = parseDateInput($("#endDate").val());
+  const label = d => `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
+  const fileName = `${label(start)} to ${label(end)} Petrol.pdf`;
 
   pdf.save(fileName);
 }
 
-setDefaultBillDate();
-$("#billDate, #durationPeriod, #totalAmount").on("change", generatePreview);
+setDefaultDates();
+$("#startDate, #endDate, #totalSlips, #totalAmount, #price").on("change input", generatePreview);
 generatePreview();
 </script>
 </body>
